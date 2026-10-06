@@ -160,7 +160,7 @@ typedef struct {
     uint32_t addr;
 } FlashItem;
 
-static void _flash_all_files(EspFlasherApp* app) {
+static void __attribute__((unused)) _flash_all_files(EspFlasherApp* app) {
     esp_loader_error_t err;
     const int num_steps = app->num_selected_flash_options;
 
@@ -211,6 +211,14 @@ static int32_t esp_flasher_flash_bin(void* context) {
     // turn on flipper blue LED for duration of flash
     notification_message(app->notification, &sequence_set_only_blue_255);
 
+    // Initialize boot/reset control lines before esp_loader_connect().
+    furi_hal_gpio_write(&gpio_ext_pc3, false);
+    furi_hal_gpio_init(&gpio_ext_pc3, GpioModeOutputPushPull, GpioPullDown, GpioSpeedVeryHigh);
+    furi_hal_gpio_write(&gpio_ext_pb2, false);
+    furi_hal_gpio_init(&gpio_ext_pb2, GpioModeOutputPushPull, GpioPullDown, GpioSpeedVeryHigh);
+    furi_hal_gpio_init_simple(&gpio_swclk, GpioModeOutputPushPull);
+    furi_hal_gpio_write(&gpio_swclk, true);
+
     loader_port_debug_print("Connecting\n");
     esp_loader_connect_args_t connect_config = ESP_LOADER_CONNECT_DEFAULT();
     err = esp_loader_connect(&connect_config);
@@ -243,6 +251,29 @@ static int32_t esp_flasher_flash_bin(void* context) {
 
         if(!_switch_fw(app)) {
             _flash_all_files(app);
+            static const uint8_t expected_md5[16] = {
+                0xc6, 0xfe, 0xd0, 0x6d, 0xf0, 0x65, 0x1b, 0x70,
+                0xb1, 0x01, 0x7b, 0xe1, 0x04, 0xae, 0xca, 0xfc
+            };
+            err = esp_loader_flash_verify_known_md5(0x10000, 1081872, expected_md5);
+
+            char result_buf[32];
+            if(err == ESP_LOADER_SUCCESS) {
+                snprintf(result_buf, sizeof(result_buf), "OK\n");
+            } else {
+                snprintf(result_buf, sizeof(result_buf), "FAIL %u\n", (unsigned)err);
+            }
+
+            File* result_file = storage_file_alloc(app->storage);
+            if(storage_file_open(
+                   result_file,
+                   "/ext/apps_data/esp_flasher/kor_verify.txt",
+                   FSAM_WRITE,
+                   FSOM_CREATE_ALWAYS)) {
+                storage_file_write(result_file, result_buf, strlen(result_buf));
+                storage_file_close(result_file);
+            }
+            storage_file_free(result_file);
         }
         app->switch_fw = SwitchNotSet;
 
@@ -404,8 +435,17 @@ extern void esp_flasher_console_output_handle_rx_data_cb(
     size_t len,
     void* context); // TODO cleanup
 void loader_port_debug_print(const char* str) {
-    if(global_app)
+    if(global_app) {
         esp_flasher_console_output_handle_rx_data_cb((uint8_t*)str, strlen(str), global_app);
+        Storage* storage = furi_record_open(RECORD_STORAGE);
+        File* f = storage_file_alloc(storage);
+        if(storage_file_open(f, "/ext/apps_data/kor_flash_log.txt", FSAM_WRITE, FSOM_OPEN_APPEND)) {
+            storage_file_write(f, str, strlen(str));
+            storage_file_close(f);
+        }
+        storage_file_free(f);
+        furi_record_close(RECORD_STORAGE);
+    }
 }
 
 void loader_port_spi_set_cs(uint32_t level) {
