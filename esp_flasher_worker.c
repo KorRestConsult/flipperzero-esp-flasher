@@ -233,19 +233,31 @@ static int32_t esp_flasher_flash_bin(void* context) {
     furi_hal_gpio_init_simple(&gpio_swclk, GpioModeOutputPushPull);
     furi_hal_gpio_write(&gpio_swclk, true);
 
-    kor_write_status(app, "BOOTLOADER\n");
-    loader_port_debug_print("Entering bootloader\n");
-    loader_port_enter_bootloader();
-    loader_port_delay_ms(250);
-
-    kor_write_status(app, "CONNECTING\n");
-    loader_port_debug_print("Connecting\n");
     esp_loader_connect_args_t connect_config = ESP_LOADER_CONNECT_DEFAULT();
-    err = esp_loader_connect(&connect_config);
-    {
-        char status_buf[32];
-        snprintf(status_buf, sizeof(status_buf), "CONNECT %u\n", (unsigned)err);
+    err = ESP_LOADER_ERROR_TIMEOUT;
+    for(uint8_t attempt = 1; attempt <= 4 && err != ESP_LOADER_SUCCESS; attempt++) {
+        furi_stream_buffer_reset(flash_rx_stream);
+        esp_flasher_uart_set_br(app->uart, BAUDRATE);
+
+        char status_buf[48];
+        snprintf(status_buf, sizeof(status_buf), "BOOTLOADER %u/4\n", attempt);
         kor_write_status(app, status_buf);
+        loader_port_debug_print("Entering bootloader\n");
+        loader_port_enter_bootloader();
+        loader_port_delay_ms(1000);
+
+        snprintf(status_buf, sizeof(status_buf), "CONNECTING %u/4\n", attempt);
+        kor_write_status(app, status_buf);
+        loader_port_debug_print("Connecting\n");
+        err = esp_loader_connect(&connect_config);
+
+        snprintf(status_buf, sizeof(status_buf), "CONNECT %u ATTEMPT %u\n", (unsigned)err, attempt);
+        kor_write_status(app, status_buf);
+
+        if(err != ESP_LOADER_SUCCESS) {
+            loader_port_reset_target();
+            loader_port_delay_ms(300);
+        }
     }
     if(err != ESP_LOADER_SUCCESS) {
         char err_msg[256];
