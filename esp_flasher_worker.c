@@ -219,6 +219,10 @@ static int32_t esp_flasher_flash_bin(void* context) {
     furi_hal_gpio_init_simple(&gpio_swclk, GpioModeOutputPushPull);
     furi_hal_gpio_write(&gpio_swclk, true);
 
+    loader_port_debug_print("Entering bootloader\n");
+    loader_port_enter_bootloader();
+    loader_port_delay_ms(250);
+
     loader_port_debug_print("Connecting\n");
     esp_loader_connect_args_t connect_config = ESP_LOADER_CONNECT_DEFAULT();
     err = esp_loader_connect(&connect_config);
