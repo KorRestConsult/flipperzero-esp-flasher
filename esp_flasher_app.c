@@ -87,7 +87,19 @@ EspFlasherApp* esp_flasher_app_alloc() {
     memset(app->parsed_slot_addrs, 0, sizeof(app->parsed_slot_addrs));
     app->part_confirm_text[0] = '\0';
 
-    scene_manager_next_scene(app->scene_manager, EspFlasherSceneStart);
+    app->text_box_store_strlen = 0;
+    app->switch_fw = SwitchNotSet;
+    for(int i = 0; i < NUM_FLASH_OPTIONS; i++) {
+        app->selected_flash_options[i] = false;
+    }
+    app->selected_flash_options[SelectedFlashAppA] = true;
+    app->num_selected_flash_options = 1;
+    app->custom_slot_addrs[SelectedFlashAppA] = 0x10000;
+    snprintf(
+        app->bin_file_path_app_a,
+        sizeof(app->bin_file_path_app_a),
+        "%s",
+        "/ext/apps_data/esp_flasher/kor-marauder-s2.bin");
 
     return app;
 }
@@ -153,6 +165,7 @@ int32_t esp_flasher_app(void* p) {
 
     esp_flasher_app->uart = esp_flasher_usart_init(esp_flasher_app);
 
+    scene_manager_next_scene(esp_flasher_app->scene_manager, EspFlasherSceneConsoleOutput);
     view_dispatcher_run(esp_flasher_app->view_dispatcher);
 
     esp_flasher_app_free(esp_flasher_app);
