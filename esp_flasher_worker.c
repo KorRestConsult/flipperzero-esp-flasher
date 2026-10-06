@@ -5,6 +5,19 @@ EspFlasherApp* global_app; // TODO make safe
 FuriTimer* timer; // TODO make
 
 static uint32_t _remaining_time = 0;
+
+static void kor_write_status(EspFlasherApp* app, const char* status) {
+    File* file = storage_file_alloc(app->storage);
+    if(storage_file_open(
+           file,
+           "/ext/apps_data/esp_flasher/kor_flash_status.txt",
+           FSAM_WRITE,
+           FSOM_CREATE_ALWAYS)) {
+        storage_file_write(file, status, strlen(status));
+        storage_file_close(file);
+    }
+    storage_file_free(file);
+}
 static void _timer_callback(void* context) {
     UNUSED(context);
     if(_remaining_time > 0) {
@@ -203,6 +216,7 @@ static int32_t esp_flasher_flash_bin(void* context) {
     esp_loader_error_t err;
 
     app->flash_worker_busy = true;
+    kor_write_status(app, "START\n");
 
     // alloc global objects
     flash_rx_stream = furi_stream_buffer_alloc(RX_BUF_SIZE, 1);
@@ -219,13 +233,20 @@ static int32_t esp_flasher_flash_bin(void* context) {
     furi_hal_gpio_init_simple(&gpio_swclk, GpioModeOutputPushPull);
     furi_hal_gpio_write(&gpio_swclk, true);
 
+    kor_write_status(app, "BOOTLOADER\n");
     loader_port_debug_print("Entering bootloader\n");
     loader_port_enter_bootloader();
     loader_port_delay_ms(250);
 
+    kor_write_status(app, "CONNECTING\n");
     loader_port_debug_print("Connecting\n");
     esp_loader_connect_args_t connect_config = ESP_LOADER_CONNECT_DEFAULT();
     err = esp_loader_connect(&connect_config);
+    {
+        char status_buf[32];
+        snprintf(status_buf, sizeof(status_buf), "CONNECT %u\n", (unsigned)err);
+        kor_write_status(app, status_buf);
+    }
     if(err != ESP_LOADER_SUCCESS) {
         char err_msg[256];
         snprintf(
@@ -254,7 +275,9 @@ static int32_t esp_flasher_flash_bin(void* context) {
         uint32_t start_time = furi_get_tick();
 
         if(!_switch_fw(app)) {
+            kor_write_status(app, "FLASH\n");
             _flash_all_files(app);
+            kor_write_status(app, "VERIFY\n");
             static const uint8_t expected_md5[16] = {
                 0xc6, 0xfe, 0xd0, 0x6d, 0xf0, 0x65, 0x1b, 0x70,
                 0xb1, 0x01, 0x7b, 0xe1, 0x04, 0xae, 0xca, 0xfc
@@ -264,7 +287,11 @@ static int32_t esp_flasher_flash_bin(void* context) {
             char result_buf[32];
             if(err == ESP_LOADER_SUCCESS) {
                 snprintf(result_buf, sizeof(result_buf), "OK\n");
+                kor_write_status(app, "VERIFY OK\n");
             } else {
+                char status_buf[32];
+                snprintf(status_buf, sizeof(status_buf), "VERIFY FAIL %u\n", (unsigned)err);
+                kor_write_status(app, status_buf);
                 snprintf(result_buf, sizeof(result_buf), "FAIL %u\n", (unsigned)err);
             }
 
